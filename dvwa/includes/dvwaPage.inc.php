@@ -566,35 +566,27 @@ function dvwaDatabaseConnect() {
 	global $db;
 	global $sqlite_db_connection;
 
-	// Reuse existing connections if they are still alive to prevent pool exhaustion
+	// Reuse existing connections if still alive
 	if( isset( $GLOBALS["___mysqli_ston"] ) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
 		if( @$GLOBALS["___mysqli_ston"]->ping() ) {
-			// Existing MySQLi connection is still valid
 			if( isset( $db ) && $db instanceof PDO ) {
-				// Both connections are still valid, no need to reconnect
 				return;
 			}
 		} else {
-			// Connection is dead, clean it up before reconnecting
 			@$GLOBALS["___mysqli_ston"]->close();
 			unset( $GLOBALS["___mysqli_ston"] );
 			$db = null;
 		}
 	}
 
-	// Determine connection timeout from config (default: 10 seconds)
 	$connectionTimeout = isset( $_DVWA['db_connection_timeout'] ) ? (int)$_DVWA['db_connection_timeout'] : 10;
-	// Determine whether to use persistent connections (default: true)
 	$usePersistent = isset( $_DVWA['db_use_persistent'] ) ? (bool)$_DVWA['db_use_persistent'] : true;
 
 	if( $DBMS == 'MySQL' ) {
-		// Use persistent connections via 'p:' prefix to enable connection reuse
-		// across requests, reducing the chance of pool exhaustion under load
 		$dbHost = $usePersistent ? 'p:' . $_DVWA[ 'db_server' ] : $_DVWA[ 'db_server' ];
 
 		$GLOBALS["___mysqli_ston"] = mysqli_init();
 		if( $GLOBALS["___mysqli_ston"] ) {
-			// Set connection timeout to avoid hanging connections consuming pool slots
 			$GLOBALS["___mysqli_ston"]->options( MYSQLI_OPT_CONNECT_TIMEOUT, $connectionTimeout );
 		}
 
@@ -636,10 +628,6 @@ function dvwaDatabaseConnect() {
 	}
 }
 
-/**
- * Properly close database connections to free up pool resources.
- * Should be called when database access is no longer needed.
- */
 function dvwaDatabaseClose() {
 	global $db;
 	global $sqlite_db_connection;
@@ -659,8 +647,6 @@ function dvwaDatabaseClose() {
 	}
 }
 
-// Register shutdown function to ensure connections are always cleaned up,
-// preventing connection leaks that lead to pool exhaustion
 register_shutdown_function( 'dvwaDatabaseClose' );
 
 // -- END (Database Management)

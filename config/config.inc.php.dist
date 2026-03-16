@@ -22,11 +22,6 @@ $_DVWA[ 'db_password' ] = getenv('DB_PASSWORD') ?: 'p@ssw0rd';
 $_DVWA[ 'db_port']      = getenv('DB_PORT') ?: '3306';
 
 # Database connection pool settings
-#   These settings help prevent connection pool exhaustion under high load.
-#   max_connections: Maximum number of concurrent database connections allowed (default: 65)
-#   connection_timeout: Seconds to wait when acquiring a connection before timing out (default: 10)
-#   idle_timeout: Seconds before an idle connection is closed (default: 300)
-#   use_persistent: Whether to use persistent connections for connection reuse (default: true)
 $_DVWA[ 'db_max_connections' ]  = getenv('DB_MAX_CONNECTIONS') ?: 65;
 $_DVWA[ 'db_connection_timeout' ] = getenv('DB_CONNECTION_TIMEOUT') ?: 10;
 $_DVWA[ 'db_idle_timeout' ]    = getenv('DB_IDLE_TIMEOUT') ?: 300;

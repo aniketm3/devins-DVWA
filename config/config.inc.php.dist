@@ -21,6 +21,12 @@ $_DVWA[ 'db_user' ]     = getenv('DB_USER') ?: 'dvwa';
 $_DVWA[ 'db_password' ] = getenv('DB_PASSWORD') ?: 'p@ssw0rd';
 $_DVWA[ 'db_port']      = getenv('DB_PORT') ?: '3306';
 
+# Database connection settings
+#   connection_timeout: Timeout in seconds when establishing a connection (default: 10)
+#   idle_timeout: Seconds before MySQL closes an idle connection (default: 300)
+$_DVWA[ 'db_connection_timeout' ] = getenv('DB_CONNECTION_TIMEOUT') ?: 10;
+$_DVWA[ 'db_idle_timeout' ]      = getenv('DB_IDLE_TIMEOUT') ?: 300;
+
 # ReCAPTCHA settings
 #   Used for the 'Insecure CAPTCHA' module
 #   You'll need to generate your own keys at: https://www.google.com/recaptcha/admin

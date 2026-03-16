@@ -566,18 +566,57 @@ function dvwaDatabaseConnect() {
 	global $db;
 	global $sqlite_db_connection;
 
+	// Reuse existing connections if they are still alive to prevent pool exhaustion
+	if( isset( $GLOBALS["___mysqli_ston"] ) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
+		if( @$GLOBALS["___mysqli_ston"]->ping() ) {
+			// Existing MySQLi connection is still valid
+			if( isset( $db ) && $db instanceof PDO ) {
+				// Both connections are still valid, no need to reconnect
+				return;
+			}
+		} else {
+			// Connection is dead, clean it up before reconnecting
+			@$GLOBALS["___mysqli_ston"]->close();
+			unset( $GLOBALS["___mysqli_ston"] );
+			$db = null;
+		}
+	}
+
+	// Determine connection timeout from config (default: 10 seconds)
+	$connectionTimeout = isset( $_DVWA['db_connection_timeout'] ) ? (int)$_DVWA['db_connection_timeout'] : 10;
+	// Determine whether to use persistent connections (default: true)
+	$usePersistent = isset( $_DVWA['db_use_persistent'] ) ? (bool)$_DVWA['db_use_persistent'] : true;
+
 	if( $DBMS == 'MySQL' ) {
-		if( !@($GLOBALS["___mysqli_ston"] = mysqli_connect( $_DVWA[ 'db_server' ],  $_DVWA[ 'db_user' ],  $_DVWA[ 'db_password' ], "", $_DVWA[ 'db_port' ] ))
+		// Use persistent connections via 'p:' prefix to enable connection reuse
+		// across requests, reducing the chance of pool exhaustion under load
+		$dbHost = $usePersistent ? 'p:' . $_DVWA[ 'db_server' ] : $_DVWA[ 'db_server' ];
+
+		$GLOBALS["___mysqli_ston"] = mysqli_init();
+		if( $GLOBALS["___mysqli_ston"] ) {
+			// Set connection timeout to avoid hanging connections consuming pool slots
+			$GLOBALS["___mysqli_ston"]->options( MYSQLI_OPT_CONNECT_TIMEOUT, $connectionTimeout );
+		}
+
+		if( !@$GLOBALS["___mysqli_ston"]->real_connect( $dbHost, $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ], '', (int)$_DVWA[ 'db_port' ] )
 		|| !@((bool)mysqli_query($GLOBALS["___mysqli_ston"], "USE " . $_DVWA[ 'db_database' ])) ) {
 			//die( $DBMS_connError );
 			dvwaLogout();
 			dvwaMessagePush( 'Unable to connect to the database.<br />' . mysqli_error($GLOBALS["___mysqli_ston"]));
 			dvwaRedirect( DVWA_WEB_PAGE_TO_ROOT . 'setup.php' );
 		}
+
 		// MySQL PDO Prepared Statements (for impossible levels)
-		$db = new PDO('mysql:host=' . $_DVWA[ 'db_server' ].';dbname=' . $_DVWA[ 'db_database' ].';port=' . $_DVWA['db_port'] . ';charset=utf8', $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ]);
-		$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-		$db->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+		$pdoOptions = array(
+			PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+			PDO::ATTR_EMULATE_PREPARES   => false,
+			PDO::ATTR_TIMEOUT            => $connectionTimeout,
+		);
+		if( $usePersistent ) {
+			$pdoOptions[PDO::ATTR_PERSISTENT] = true;
+		}
+
+		$db = new PDO('mysql:host=' . $_DVWA[ 'db_server' ].';dbname=' . $_DVWA[ 'db_database' ].';port=' . $_DVWA['db_port'] . ';charset=utf8', $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ], $pdoOptions);
 	}
 	elseif( $DBMS == 'PGSQL' ) {
 		//$dbconn = pg_connect("host={$_DVWA[ 'db_server' ]} dbname={$_DVWA[ 'db_database' ]} user={$_DVWA[ 'db_user' ]} password={$_DVWA[ 'db_password' ]}"
@@ -596,6 +635,33 @@ function dvwaDatabaseConnect() {
 	#	print "sqlite db setup";
 	}
 }
+
+/**
+ * Properly close database connections to free up pool resources.
+ * Should be called when database access is no longer needed.
+ */
+function dvwaDatabaseClose() {
+	global $db;
+	global $sqlite_db_connection;
+
+	if( isset( $GLOBALS["___mysqli_ston"] ) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
+		@$GLOBALS["___mysqli_ston"]->close();
+		unset( $GLOBALS["___mysqli_ston"] );
+	}
+
+	if( isset( $db ) && $db instanceof PDO ) {
+		$db = null;
+	}
+
+	if( isset( $sqlite_db_connection ) && $sqlite_db_connection instanceof SQLite3 ) {
+		@$sqlite_db_connection->close();
+		$sqlite_db_connection = null;
+	}
+}
+
+// Register shutdown function to ensure connections are always cleaned up,
+// preventing connection leaks that lead to pool exhaustion
+register_shutdown_function( 'dvwaDatabaseClose' );
 
 // -- END (Database Management)
 

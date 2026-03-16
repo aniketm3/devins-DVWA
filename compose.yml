@@ -37,3 +37,4 @@ services:
     networks:
       - dvwa
     restart: unless-stopped
+    command: --max-connections=250 --wait-timeout=300 --interactive-timeout=300

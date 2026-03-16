@@ -237,7 +237,7 @@ class LoginController
 						$response = $this->login();
 						break;
 					case "login":
-						$response = $this->login();
+						$response = $this->loginJSON();
 						break;
 					case "check_token":
 						$response = $this->check_token();

@@ -566,62 +566,18 @@ function dvwaDatabaseConnect() {
 	global $db;
 	global $sqlite_db_connection;
 
-	// Reuse existing MySQLi connection if it is still alive
-	if( isset($GLOBALS["___mysqli_ston"]) && $GLOBALS["___mysqli_ston"] instanceof mysqli && @$GLOBALS["___mysqli_ston"]->ping() ) {
-		// Reuse existing PDO connection as well if available
-		if( isset($db) && $db instanceof PDO ) {
-			return;
-		}
-	}
-
-	// Read connection pool settings with defaults
-	$connection_timeout = isset($_DVWA['db_connection_timeout']) ? (int)$_DVWA['db_connection_timeout'] : 5;
-	$idle_timeout = isset($_DVWA['db_idle_timeout']) ? (int)$_DVWA['db_idle_timeout'] : 60;
-	$use_persistent = isset($_DVWA['db_persistent']) ? (bool)$_DVWA['db_persistent'] : false;
-
 	if( $DBMS == 'MySQL' ) {
-		// Close any stale MySQLi connection before reconnecting
-		if( isset($GLOBALS["___mysqli_ston"]) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
-			@mysqli_close($GLOBALS["___mysqli_ston"]);
-			$GLOBALS["___mysqli_ston"] = null;
-		}
-
-		// Set MySQLi connection timeout before connecting
-		$mysqli = mysqli_init();
-		$mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $connection_timeout);
-
-		if( !@$mysqli->real_connect( $_DVWA[ 'db_server' ],  $_DVWA[ 'db_user' ],  $_DVWA[ 'db_password' ], "", (int)$_DVWA[ 'db_port' ] )
-		|| !@((bool)$mysqli->query("USE " . $_DVWA[ 'db_database' ])) ) {
+		if( !@($GLOBALS["___mysqli_ston"] = mysqli_connect( $_DVWA[ 'db_server' ],  $_DVWA[ 'db_user' ],  $_DVWA[ 'db_password' ], "", $_DVWA[ 'db_port' ] ))
+		|| !@((bool)mysqli_query($GLOBALS["___mysqli_ston"], "USE " . $_DVWA[ 'db_database' ])) ) {
 			//die( $DBMS_connError );
 			dvwaLogout();
-			dvwaMessagePush( 'Unable to connect to the database.<br />' . $mysqli->error);
+			dvwaMessagePush( 'Unable to connect to the database.<br />' . mysqli_error($GLOBALS["___mysqli_ston"]));
 			dvwaRedirect( DVWA_WEB_PAGE_TO_ROOT . 'setup.php' );
 		}
-
-		// Set wait_timeout so idle connections are released by the server
-		@$mysqli->query("SET SESSION wait_timeout = " . $idle_timeout);
-
-		$GLOBALS["___mysqli_ston"] = $mysqli;
-
-		// Close any stale PDO connection before reconnecting
-		if( isset($db) && $db instanceof PDO ) {
-			$db = null;
-		}
-
 		// MySQL PDO Prepared Statements (for impossible levels)
-		$dsn = 'mysql:host=' . $_DVWA[ 'db_server' ] . ';dbname=' . $_DVWA[ 'db_database' ] . ';port=' . $_DVWA['db_port'] . ';charset=utf8';
-		$pdo_options = array(
-			PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-			PDO::ATTR_EMULATE_PREPARES   => false,
-			PDO::ATTR_TIMEOUT            => $connection_timeout,
-		);
-		if( $use_persistent ) {
-			$pdo_options[PDO::ATTR_PERSISTENT] = true;
-		}
-		$db = new PDO($dsn, $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ], $pdo_options);
-
-		// Set idle timeout on the PDO connection as well
-		$db->exec("SET SESSION wait_timeout = " . $idle_timeout);
+		$db = new PDO('mysql:host=' . $_DVWA[ 'db_server' ].';dbname=' . $_DVWA[ 'db_database' ].';port=' . $_DVWA['db_port'] . ';charset=utf8', $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ]);
+		$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+		$db->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
 	}
 	elseif( $DBMS == 'PGSQL' ) {
 		//$dbconn = pg_connect("host={$_DVWA[ 'db_server' ]} dbname={$_DVWA[ 'db_database' ]} user={$_DVWA[ 'db_user' ]} password={$_DVWA[ 'db_password' ]}"
@@ -634,39 +590,12 @@ function dvwaDatabaseConnect() {
 	}
 
 	if ($_DVWA['SQLI_DB'] == SQLITE) {
-		if( !isset($sqlite_db_connection) || !($sqlite_db_connection instanceof SQLite3) ) {
-			$location = DVWA_WEB_PAGE_TO_ROOT . "database/" . $_DVWA['SQLITE_DB'];
-			$sqlite_db_connection = new SQLite3($location);
-			$sqlite_db_connection->enableExceptions(true);
-		}
+		$location = DVWA_WEB_PAGE_TO_ROOT . "database/" . $_DVWA['SQLITE_DB'];
+		$sqlite_db_connection = new SQLite3($location);
+		$sqlite_db_connection->enableExceptions(true);
 	#	print "sqlite db setup";
 	}
 }
-
-function dvwaDatabaseDisconnect() {
-	global $db;
-	global $sqlite_db_connection;
-
-	// Close MySQLi connection
-	if( isset($GLOBALS["___mysqli_ston"]) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
-		@mysqli_close($GLOBALS["___mysqli_ston"]);
-		$GLOBALS["___mysqli_ston"] = null;
-	}
-
-	// Close PDO connection
-	if( isset($db) ) {
-		$db = null;
-	}
-
-	// Close SQLite connection
-	if( isset($sqlite_db_connection) && $sqlite_db_connection instanceof SQLite3 ) {
-		@$sqlite_db_connection->close();
-		$sqlite_db_connection = null;
-	}
-}
-
-// Register shutdown function to ensure connections are always cleaned up
-register_shutdown_function('dvwaDatabaseDisconnect');
 
 // -- END (Database Management)
 

@@ -21,13 +21,6 @@ $_DVWA[ 'db_user' ]     = getenv('DB_USER') ?: 'dvwa';
 $_DVWA[ 'db_password' ] = getenv('DB_PASSWORD') ?: 'p@ssw0rd';
 $_DVWA[ 'db_port']      = getenv('DB_PORT') ?: '3306';
 
-# Database connection pool settings
-#   These settings help prevent connection pool exhaustion under load.
-#   Adjust based on your server's capacity and expected traffic.
-$_DVWA[ 'db_connection_timeout' ] = getenv('DB_CONNECTION_TIMEOUT') ?: 5;
-$_DVWA[ 'db_idle_timeout' ]      = getenv('DB_IDLE_TIMEOUT') ?: 60;
-$_DVWA[ 'db_persistent' ]        = getenv('DB_PERSISTENT') ?: false;
-
 # ReCAPTCHA settings
 #   Used for the 'Insecure CAPTCHA' module
 #   You'll need to generate your own keys at: https://www.google.com/recaptcha/admin

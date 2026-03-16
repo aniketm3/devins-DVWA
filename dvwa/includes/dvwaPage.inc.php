@@ -567,6 +567,22 @@ function dvwaDatabaseConnect() {
 	global $sqlite_db_connection;
 
 	if( $DBMS == 'MySQL' ) {
+		// Reuse the existing MySQLi connection if it is still valid
+		if( isset( $GLOBALS["___mysqli_ston"] ) && ( $GLOBALS["___mysqli_ston"] instanceof mysqli ) && @$GLOBALS["___mysqli_ston"]->ping() ) {
+			if( isset( $db ) && ( $db instanceof PDO ) ) {
+				return;
+			}
+		}
+
+		// Clean up any dead connection handles before creating new ones
+		if( isset( $GLOBALS["___mysqli_ston"] ) && ( $GLOBALS["___mysqli_ston"] instanceof mysqli ) ) {
+			@mysqli_close( $GLOBALS["___mysqli_ston"] );
+			$GLOBALS["___mysqli_ston"] = null;
+		}
+		if( isset( $db ) ) {
+			$db = null;
+		}
+
 		if( !@($GLOBALS["___mysqli_ston"] = mysqli_connect( $_DVWA[ 'db_server' ],  $_DVWA[ 'db_user' ],  $_DVWA[ 'db_password' ], "", $_DVWA[ 'db_port' ] ))
 		|| !@((bool)mysqli_query($GLOBALS["___mysqli_ston"], "USE " . $_DVWA[ 'db_database' ])) ) {
 			//die( $DBMS_connError );
@@ -574,10 +590,13 @@ function dvwaDatabaseConnect() {
 			dvwaMessagePush( 'Unable to connect to the database.<br />' . mysqli_error($GLOBALS["___mysqli_ston"]));
 			dvwaRedirect( DVWA_WEB_PAGE_TO_ROOT . 'setup.php' );
 		}
+
 		// MySQL PDO Prepared Statements (for impossible levels)
-		$db = new PDO('mysql:host=' . $_DVWA[ 'db_server' ].';dbname=' . $_DVWA[ 'db_database' ].';port=' . $_DVWA['db_port'] . ';charset=utf8', $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ]);
-		$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-		$db->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+		$db = new PDO('mysql:host=' . $_DVWA[ 'db_server' ].';dbname=' . $_DVWA[ 'db_database' ].';port=' . $_DVWA['db_port'] . ';charset=utf8', $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ], array(
+			PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+			PDO::ATTR_EMULATE_PREPARES => false,
+			PDO::ATTR_PERSISTENT => true,
+		));
 	}
 	elseif( $DBMS == 'PGSQL' ) {
 		//$dbconn = pg_connect("host={$_DVWA[ 'db_server' ]} dbname={$_DVWA[ 'db_database' ]} user={$_DVWA[ 'db_user' ]} password={$_DVWA[ 'db_password' ]}"
@@ -590,12 +609,33 @@ function dvwaDatabaseConnect() {
 	}
 
 	if ($_DVWA['SQLI_DB'] == SQLITE) {
-		$location = DVWA_WEB_PAGE_TO_ROOT . "database/" . $_DVWA['SQLITE_DB'];
-		$sqlite_db_connection = new SQLite3($location);
-		$sqlite_db_connection->enableExceptions(true);
+		if( !isset( $sqlite_db_connection ) || !( $sqlite_db_connection instanceof SQLite3 ) ) {
+			$location = DVWA_WEB_PAGE_TO_ROOT . "database/" . $_DVWA['SQLITE_DB'];
+			$sqlite_db_connection = new SQLite3($location);
+			$sqlite_db_connection->enableExceptions(true);
+		}
 	#	print "sqlite db setup";
 	}
 }
+
+function dvwaDatabaseDisconnect() {
+	global $db;
+	global $sqlite_db_connection;
+
+	if( isset( $GLOBALS["___mysqli_ston"] ) && ( $GLOBALS["___mysqli_ston"] instanceof mysqli ) ) {
+		@mysqli_close( $GLOBALS["___mysqli_ston"] );
+		$GLOBALS["___mysqli_ston"] = null;
+	}
+
+	$db = null;
+
+	if( isset( $sqlite_db_connection ) && ( $sqlite_db_connection instanceof SQLite3 ) ) {
+		@$sqlite_db_connection->close();
+		$sqlite_db_connection = null;
+	}
+}
+
+register_shutdown_function( 'dvwaDatabaseDisconnect' );
 
 // -- END (Database Management)
 

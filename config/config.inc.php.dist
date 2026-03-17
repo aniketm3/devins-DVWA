@@ -21,6 +21,19 @@ $_DVWA[ 'db_user' ]     = getenv('DB_USER') ?: 'dvwa';
 $_DVWA[ 'db_password' ] = getenv('DB_PASSWORD') ?: 'p@ssw0rd';
 $_DVWA[ 'db_port']      = getenv('DB_PORT') ?: '3306';
 
+# Database connection pool settings
+#   These settings help prevent connection pool exhaustion under high load.
+#   max_connections: Maximum number of concurrent database connections allowed (server-side limit awareness)
+#   connection_timeout: Timeout in seconds when waiting to acquire a connection
+#   enable_persistent: Use persistent connections to reduce connection overhead
+#   retry_attempts: Number of times to retry a failed connection before giving up
+#   retry_delay: Delay in seconds between connection retry attempts
+$_DVWA[ 'db_max_connections' ]    = getenv('DB_MAX_CONNECTIONS') ?: 50;
+$_DVWA[ 'db_connection_timeout' ] = getenv('DB_CONNECTION_TIMEOUT') ?: 10;
+$_DVWA[ 'db_enable_persistent' ]  = getenv('DB_ENABLE_PERSISTENT') ?: true;
+$_DVWA[ 'db_retry_attempts' ]     = getenv('DB_RETRY_ATTEMPTS') ?: 3;
+$_DVWA[ 'db_retry_delay' ]        = getenv('DB_RETRY_DELAY') ?: 1;
+
 # ReCAPTCHA settings
 #   Used for the 'Insecure CAPTCHA' module
 #   You'll need to generate your own keys at: https://www.google.com/recaptcha/admin

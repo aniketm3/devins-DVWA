@@ -566,18 +566,61 @@ function dvwaDatabaseConnect() {
 	global $db;
 	global $sqlite_db_connection;
 
+	// Reuse existing connections if they are still alive to prevent
+	// connection pool exhaustion under concurrent load (see issue #60).
+	if( isset( $GLOBALS["___mysqli_ston"] ) && $GLOBALS["___mysqli_ston"] instanceof mysqli && @$GLOBALS["___mysqli_ston"]->ping() ) {
+		if( isset( $db ) && $db instanceof PDO ) {
+			return;
+		}
+	}
+
+	// Read connection pool configuration with sensible defaults
+	$persistent     = isset( $_DVWA[ 'db_persistent' ] ) ? (bool)$_DVWA[ 'db_persistent' ] : true;
+	$connectTimeout = isset( $_DVWA[ 'db_connect_timeout' ] ) ? (int)$_DVWA[ 'db_connect_timeout' ] : 10;
+
 	if( $DBMS == 'MySQL' ) {
-		if( !@($GLOBALS["___mysqli_ston"] = mysqli_connect( $_DVWA[ 'db_server' ],  $_DVWA[ 'db_user' ],  $_DVWA[ 'db_password' ], "", $_DVWA[ 'db_port' ] ))
+		// Use persistent connections (prefixed with 'p:') to allow the web
+		// server to reuse idle database handles instead of opening a new
+		// connection for every HTTP request.  This significantly reduces the
+		// number of simultaneous connections to the database server and
+		// prevents the "connection pool exhausted" error under peak traffic.
+		$db_host = $persistent ? ( 'p:' . $_DVWA[ 'db_server' ] ) : $_DVWA[ 'db_server' ];
+
+		// Close any stale connection before reconnecting
+		if( isset( $GLOBALS["___mysqli_ston"] ) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
+			@mysqli_close( $GLOBALS["___mysqli_ston"] );
+		}
+
+		// Set connection timeout before connecting
+		$GLOBALS["___mysqli_ston"] = mysqli_init();
+		$GLOBALS["___mysqli_ston"]->options( MYSQLI_OPT_CONNECT_TIMEOUT, $connectTimeout );
+
+		if( !@$GLOBALS["___mysqli_ston"]->real_connect( $db_host, $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ], '', (int)$_DVWA[ 'db_port' ] )
 		|| !@((bool)mysqli_query($GLOBALS["___mysqli_ston"], "USE " . $_DVWA[ 'db_database' ])) ) {
 			//die( $DBMS_connError );
 			dvwaLogout();
 			dvwaMessagePush( 'Unable to connect to the database.<br />' . mysqli_error($GLOBALS["___mysqli_ston"]));
 			dvwaRedirect( DVWA_WEB_PAGE_TO_ROOT . 'setup.php' );
 		}
+
 		// MySQL PDO Prepared Statements (for impossible levels)
-		$db = new PDO('mysql:host=' . $_DVWA[ 'db_server' ].';dbname=' . $_DVWA[ 'db_database' ].';port=' . $_DVWA['db_port'] . ';charset=utf8', $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ]);
-		$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-		$db->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+		// Enable persistent PDO connections and set a connection timeout so
+		// that idle handles are recycled by the web server process.
+		$pdoOptions = array(
+			PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+			PDO::ATTR_EMULATE_PREPARES   => false,
+			PDO::ATTR_TIMEOUT            => $connectTimeout,
+		);
+		if( $persistent ) {
+			$pdoOptions[PDO::ATTR_PERSISTENT] = true;
+		}
+
+		$db = new PDO(
+			'mysql:host=' . $_DVWA[ 'db_server' ] . ';dbname=' . $_DVWA[ 'db_database' ] . ';port=' . $_DVWA['db_port'] . ';charset=utf8',
+			$_DVWA[ 'db_user' ],
+			$_DVWA[ 'db_password' ],
+			$pdoOptions
+		);
 	}
 	elseif( $DBMS == 'PGSQL' ) {
 		//$dbconn = pg_connect("host={$_DVWA[ 'db_server' ]} dbname={$_DVWA[ 'db_database' ]} user={$_DVWA[ 'db_user' ]} password={$_DVWA[ 'db_password' ]}"
@@ -596,6 +639,41 @@ function dvwaDatabaseConnect() {
 	#	print "sqlite db setup";
 	}
 }
+
+/**
+ * Explicitly close open database connections and free resources.
+ *
+ * Calling this at the end of a request ensures that non-persistent
+ * connections are returned to the server promptly, which helps keep
+ * the active connection count well below the configured
+ * max_connections limit (see issue #60).
+ */
+function dvwaDatabaseClose() {
+	global $db;
+	global $sqlite_db_connection;
+
+	// Close MySQLi connection
+	if( isset( $GLOBALS["___mysqli_ston"] ) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
+		@mysqli_close( $GLOBALS["___mysqli_ston"] );
+		$GLOBALS["___mysqli_ston"] = null;
+	}
+
+	// Release PDO connection
+	if( isset( $db ) && $db instanceof PDO ) {
+		$db = null;
+	}
+
+	// Close SQLite connection
+	if( isset( $sqlite_db_connection ) && $sqlite_db_connection instanceof SQLite3 ) {
+		$sqlite_db_connection->close();
+		$sqlite_db_connection = null;
+	}
+}
+
+// Register shutdown function so connections are cleaned up even if
+// the script exits unexpectedly.  This prevents leaked connections
+// from accumulating and exhausting the database connection pool.
+register_shutdown_function( 'dvwaDatabaseClose' );
 
 // -- END (Database Management)
 

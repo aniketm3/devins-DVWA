@@ -567,20 +567,6 @@ function dvwaDatabaseConnect() {
 	global $sqlite_db_connection;
 
 	if( $DBMS == 'MySQL' ) {
-		// Reuse existing MySQLi connection if it is still valid
-		if( isset( $GLOBALS["___mysqli_ston"] ) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
-			if( @$GLOBALS["___mysqli_ston"]->ping() ) {
-				// Connection is still alive, reuse it
-				if( isset( $db ) && $db instanceof PDO ) {
-					// Both connections are valid, nothing to do
-					return;
-				}
-			}
-			// Connection is stale, close it before reconnecting
-			@$GLOBALS["___mysqli_ston"]->close();
-			$GLOBALS["___mysqli_ston"] = null;
-		}
-
 		// Set connection timeout from pool configuration
 		$connectionTimeout = isset( $_DVWA['db_connection_timeout'] ) ? (int)$_DVWA['db_connection_timeout'] : 10;
 
@@ -628,11 +614,9 @@ function dvwaDatabaseConnect() {
 	}
 
 	if ($_DVWA['SQLI_DB'] == SQLITE) {
-		if( !isset( $sqlite_db_connection ) || !$sqlite_db_connection instanceof SQLite3 ) {
-			$location = DVWA_WEB_PAGE_TO_ROOT . "database/" . $_DVWA['SQLITE_DB'];
-			$sqlite_db_connection = new SQLite3($location);
-			$sqlite_db_connection->enableExceptions(true);
-		}
+		$location = DVWA_WEB_PAGE_TO_ROOT . "database/" . $_DVWA['SQLITE_DB'];
+		$sqlite_db_connection = new SQLite3($location);
+		$sqlite_db_connection->enableExceptions(true);
 	#	print "sqlite db setup";
 	}
 }
@@ -642,19 +626,19 @@ function dvwaDatabaseDisconnect() {
 	global $sqlite_db_connection;
 
 	// Close MySQLi connection
-	if( isset( $GLOBALS["___mysqli_ston"] ) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
-		@$GLOBALS["___mysqli_ston"]->close();
+	if( isset( $GLOBALS["___mysqli_ston"] ) ) {
+		@mysqli_close( $GLOBALS["___mysqli_ston"] );
 		$GLOBALS["___mysqli_ston"] = null;
 	}
 
 	// Close PDO connection
-	if( isset( $db ) && $db instanceof PDO ) {
+	if( isset( $db ) ) {
 		$db = null;
 	}
 
 	// Close SQLite connection
-	if( isset( $sqlite_db_connection ) && $sqlite_db_connection instanceof SQLite3 ) {
-		$sqlite_db_connection->close();
+	if( isset( $sqlite_db_connection ) ) {
+		@$sqlite_db_connection->close();
 		$sqlite_db_connection = null;
 	}
 }

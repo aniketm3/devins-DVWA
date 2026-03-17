@@ -566,18 +566,40 @@ function dvwaDatabaseConnect() {
 	global $db;
 	global $sqlite_db_connection;
 
+	// Reuse existing connections if they are still alive (prevents pool exhaustion)
+	if( isset($GLOBALS["___mysqli_ston"]) && $GLOBALS["___mysqli_ston"] instanceof mysqli && @$GLOBALS["___mysqli_ston"]->ping() ) {
+		if( isset($db) && $db instanceof PDO ) {
+			return;
+		}
+	}
+
+	// Read connection pool settings with defaults
+	$db_connection_timeout = isset($_DVWA['db_connection_timeout']) ? (int)$_DVWA['db_connection_timeout'] : 10;
+	$db_persistent = isset($_DVWA['db_persistent']) ? (bool)$_DVWA['db_persistent'] : true;
+
 	if( $DBMS == 'MySQL' ) {
-		if( !@($GLOBALS["___mysqli_ston"] = mysqli_connect( $_DVWA[ 'db_server' ],  $_DVWA[ 'db_user' ],  $_DVWA[ 'db_password' ], "", $_DVWA[ 'db_port' ] ))
-		|| !@((bool)mysqli_query($GLOBALS["___mysqli_ston"], "USE " . $_DVWA[ 'db_database' ])) ) {
+		// Create mysqli connection with timeout settings
+		$mysqli_conn = mysqli_init();
+		mysqli_options($mysqli_conn, MYSQLI_OPT_CONNECT_TIMEOUT, $db_connection_timeout);
+		if( !@mysqli_real_connect($mysqli_conn, $_DVWA[ 'db_server' ], $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ], '', (int)$_DVWA[ 'db_port' ])
+		|| !@((bool)mysqli_query($mysqli_conn, "USE " . $_DVWA[ 'db_database' ])) ) {
 			//die( $DBMS_connError );
 			dvwaLogout();
-			dvwaMessagePush( 'Unable to connect to the database.<br />' . mysqli_error($GLOBALS["___mysqli_ston"]));
+			dvwaMessagePush( 'Unable to connect to the database.<br />' . mysqli_error($mysqli_conn));
 			dvwaRedirect( DVWA_WEB_PAGE_TO_ROOT . 'setup.php' );
 		}
+		$GLOBALS["___mysqli_ston"] = $mysqli_conn;
+
 		// MySQL PDO Prepared Statements (for impossible levels)
-		$db = new PDO('mysql:host=' . $_DVWA[ 'db_server' ].';dbname=' . $_DVWA[ 'db_database' ].';port=' . $_DVWA['db_port'] . ';charset=utf8', $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ]);
-		$db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-		$db->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+		// Use persistent connections to enable connection reuse across requests
+		$dsn = 'mysql:host=' . $_DVWA[ 'db_server' ] . ';dbname=' . $_DVWA[ 'db_database' ] . ';port=' . $_DVWA['db_port'] . ';charset=utf8';
+		$pdo_options = array(
+			PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+			PDO::ATTR_EMULATE_PREPARES   => false,
+			PDO::ATTR_TIMEOUT            => $db_connection_timeout,
+			PDO::ATTR_PERSISTENT         => $db_persistent,
+		);
+		$db = new PDO($dsn, $_DVWA[ 'db_user' ], $_DVWA[ 'db_password' ], $pdo_options);
 	}
 	elseif( $DBMS == 'PGSQL' ) {
 		//$dbconn = pg_connect("host={$_DVWA[ 'db_server' ]} dbname={$_DVWA[ 'db_database' ]} user={$_DVWA[ 'db_user' ]} password={$_DVWA[ 'db_password' ]}"
@@ -589,11 +611,36 @@ function dvwaDatabaseConnect() {
 		die ( "Unknown {$DBMS} selected." );
 	}
 
+	// Register shutdown function to ensure connections are properly cleaned up
+	register_shutdown_function('dvwaDatabaseCleanup');
+
 	if ($_DVWA['SQLI_DB'] == SQLITE) {
 		$location = DVWA_WEB_PAGE_TO_ROOT . "database/" . $_DVWA['SQLITE_DB'];
 		$sqlite_db_connection = new SQLite3($location);
 		$sqlite_db_connection->enableExceptions(true);
 	#	print "sqlite db setup";
+	}
+}
+
+function dvwaDatabaseCleanup() {
+	global $db;
+	global $sqlite_db_connection;
+
+	// Close mysqli connection if open
+	if( isset($GLOBALS["___mysqli_ston"]) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
+		@$GLOBALS["___mysqli_ston"]->close();
+		$GLOBALS["___mysqli_ston"] = null;
+	}
+
+	// Release PDO connection back to the pool
+	if( isset($db) && $db instanceof PDO ) {
+		$db = null;
+	}
+
+	// Close SQLite connection if open
+	if( isset($sqlite_db_connection) && $sqlite_db_connection instanceof SQLite3 ) {
+		@$sqlite_db_connection->close();
+		$sqlite_db_connection = null;
 	}
 }
 

@@ -234,10 +234,10 @@ class LoginController
 			case 'POST':
 				switch ($this->command) {
 					case "refresh":
-						$response = $this->login();
+						$response = $this->refresh();
 						break;
 					case "login":
-						$response = $this->login();
+						$response = $this->loginJSON();
 						break;
 					case "check_token":
 						$response = $this->check_token();

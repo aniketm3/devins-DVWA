@@ -22,7 +22,8 @@ $_DVWA[ 'db_password' ] = getenv('DB_PASSWORD') ?: 'p@ssw0rd';
 $_DVWA[ 'db_port']      = getenv('DB_PORT') ?: '3306';
 
 # Database connection pool settings
-#   max_connections: Maximum number of concurrent database connections (default: 50)
+#   max_connections: Recommended MySQL server max_connections setting (default: 50)
+#     This value is not enforced by PHP; set it in your MySQL server config (my.cnf).
 #   connection_timeout: Seconds to wait when acquiring a connection (default: 10)
 #   idle_timeout: Seconds before an idle connection is closed (default: 300)
 #   persistent: Use persistent connections to reuse connections across requests (default: true)

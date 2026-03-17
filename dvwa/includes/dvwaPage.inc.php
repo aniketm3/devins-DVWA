@@ -636,16 +636,25 @@ function dvwaDatabaseConnect() {
 }
 
 function dvwaDatabaseClose() {
+	global $_DVWA;
 	global $db;
 	global $sqlite_db_connection;
 
-	// Close MySQLi connection if it exists and is not persistent
+	$persistent = isset($_DVWA['db_persistent']) ? $_DVWA['db_persistent'] : true;
+
+	// For persistent connections, skip close() — PHP manages their lifecycle
+	// automatically and calling close() would destroy the connection rather
+	// than returning it to the pool. For non-persistent connections, close
+	// explicitly to free resources immediately.
 	if( isset($GLOBALS["___mysqli_ston"]) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
-		@$GLOBALS["___mysqli_ston"]->close();
+		if( !$persistent ) {
+			@$GLOBALS["___mysqli_ston"]->close();
+		}
 		$GLOBALS["___mysqli_ston"] = null;
 	}
 
-	// Release PDO connection back to pool
+	// Release PDO connection reference; for persistent connections PHP
+	// returns it to the pool, for non-persistent it closes the connection.
 	if( isset($db) ) {
 		$db = null;
 	}

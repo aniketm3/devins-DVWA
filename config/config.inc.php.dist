@@ -45,6 +45,15 @@ $_DVWA[ 'disable_authentication' ] = getenv('DISABLE_AUTHENTICATION') ?: false;
 define ('MYSQL', 'mysql');
 define ('SQLITE', 'sqlite');
 
+# Database connection settings
+#   These settings help prevent connection pool exhaustion under high load.
+#   db_persistent: Use persistent connections to reuse connections across requests (default: true)
+#   db_connect_timeout: Timeout in seconds for establishing a connection (default: 5)
+#   db_read_timeout: Timeout in seconds for reading data from the connection (default: 10)
+$_DVWA[ 'db_persistent' ] = getenv('DB_PERSISTENT') !== false ? filter_var(getenv('DB_PERSISTENT'), FILTER_VALIDATE_BOOLEAN) : true;
+$_DVWA[ 'db_connect_timeout' ] = getenv('DB_CONNECT_TIMEOUT') ?: 5;
+$_DVWA[ 'db_read_timeout' ] = getenv('DB_READ_TIMEOUT') ?: 10;
+
 # SQLi DB Backend
 #   Use this to switch the backend database used in the SQLi and Blind SQLi labs.
 #   This does not affect the backend for any other services, just these two labs.

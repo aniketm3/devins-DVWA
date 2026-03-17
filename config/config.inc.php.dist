@@ -45,11 +45,31 @@ $_DVWA[ 'disable_authentication' ] = getenv('DISABLE_AUTHENTICATION') ?: false;
 define ('MYSQL', 'mysql');
 define ('SQLITE', 'sqlite');
 
-# Database connection settings
-#   These settings help prevent connection pool exhaustion under high load.
-#   db_persistent: Use persistent connections to reuse connections across requests (default: true)
-#   db_connect_timeout: Timeout in seconds for establishing a connection (default: 5)
-#   db_read_timeout: Timeout in seconds for reading data from the connection (default: 10)
+# Database connection pool settings
+#   These settings control how DVWA manages database connections to prevent
+#   pool exhaustion under high concurrency (see GitHub issue #68).
+#
+#   db_persistent (env: DB_PERSISTENT, default: true)
+#     When enabled, PHP reuses idle database connections from previous requests
+#     instead of opening new ones. This dramatically reduces the total number of
+#     connections needed under load. Disable (set to false) if you experience
+#     issues with stale connection state (e.g., temporary tables or session
+#     variables leaking between requests).
+#
+#   db_connect_timeout (env: DB_CONNECT_TIMEOUT, default: 5)
+#     Maximum time in seconds to wait when establishing a new database connection.
+#     If the database server is unreachable, the connection attempt will fail
+#     after this timeout rather than hanging indefinitely. Increase this value
+#     if your database server has high latency.
+#
+#   db_read_timeout (env: DB_READ_TIMEOUT, default: 10)
+#     Maximum time in seconds to wait for a response from the database server
+#     during read operations. Prevents long-running or stalled queries from
+#     holding connections open indefinitely. Increase for slow queries or
+#     large result sets.
+#
+#   All settings can be overridden via environment variables, making them
+#   easy to configure in Docker deployments (e.g., in compose.yml).
 $_DVWA[ 'db_persistent' ] = getenv('DB_PERSISTENT') !== false ? filter_var(getenv('DB_PERSISTENT'), FILTER_VALIDATE_BOOLEAN) : true;
 $_DVWA[ 'db_connect_timeout' ] = getenv('DB_CONNECT_TIMEOUT') ?: 5;
 $_DVWA[ 'db_read_timeout' ] = getenv('DB_READ_TIMEOUT') ?: 10;

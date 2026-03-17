@@ -559,6 +559,41 @@ else {
 	$DBMS = "No DBMS selected.";
 }
 
+/*
+ * dvwaDatabaseConnect()
+ *
+ * Establishes database connections for the application. This function manages
+ * both a MySQLi connection (stored in $GLOBALS["___mysqli_ston"]) used by most
+ * vulnerability modules, and a PDO connection (stored in global $db) used by
+ * the "impossible" security level implementations for prepared statements.
+ *
+ * Connection Pool Management:
+ *   Without persistent connections, each PHP request creates a new database
+ *   connection. Under high concurrency (>50 simultaneous requests), this can
+ *   exhaust the database server's maximum connection limit, causing
+ *   "connection pool exhausted" errors and application crashes.
+ *
+ *   This function addresses the issue through several mechanisms:
+ *   1. Persistent connections - Reuses existing database connections across
+ *      PHP requests via the MySQLi 'p:' host prefix and PDO ATTR_PERSISTENT.
+ *      This dramatically reduces the number of active connections needed.
+ *   2. Connection reuse - Before creating a new connection, checks if an
+ *      existing one is still alive (via mysqli::ping()), avoiding duplicate
+ *      connections within the same request.
+ *   3. Configurable timeouts - Prevents connections from hanging indefinitely
+ *      on unresponsive database servers, freeing up resources faster.
+ *   4. Shutdown cleanup - A registered shutdown function (dvwaDatabaseCleanup)
+ *      ensures all connections are properly closed at the end of each request,
+ *      releasing them back to the pool for reuse.
+ *
+ * Configuration (via $_DVWA array or environment variables):
+ *   - db_persistent (DB_PERSISTENT): Enable persistent connections (default: true)
+ *   - db_connect_timeout (DB_CONNECT_TIMEOUT): Connection timeout in seconds (default: 5)
+ *   - db_read_timeout (DB_READ_TIMEOUT): Read timeout in seconds (default: 10)
+ *
+ * @see dvwaDatabaseCleanup() for the shutdown cleanup handler
+ * @see config/config.inc.php.dist for configuration options
+ */
 function dvwaDatabaseConnect() {
 	global $_DVWA;
 	global $DBMS;
@@ -566,21 +601,41 @@ function dvwaDatabaseConnect() {
 	global $db;
 	global $sqlite_db_connection;
 
-	// Connection configuration defaults
+	// Read connection configuration from $_DVWA array, falling back to
+	// sensible defaults if not set. These can be overridden via environment
+	// variables (DB_PERSISTENT, DB_CONNECT_TIMEOUT, DB_READ_TIMEOUT) in
+	// config/config.inc.php or Docker compose environment.
 	$db_persistent = isset($_DVWA['db_persistent']) ? $_DVWA['db_persistent'] : true;
 	$db_connect_timeout = isset($_DVWA['db_connect_timeout']) ? (int)$_DVWA['db_connect_timeout'] : 5;
 	$db_read_timeout = isset($_DVWA['db_read_timeout']) ? (int)$_DVWA['db_read_timeout'] : 10;
 
 	if( $DBMS == 'MySQL' ) {
-		// Reuse existing MySQLi connection if it is still alive
+		// Check if we already have a valid MySQLi connection from this request.
+		// mysqli::ping() verifies the connection is still alive and hasn't timed
+		// out. If valid, we simply ensure the correct database is selected.
+		// This prevents creating redundant connections when dvwaDatabaseConnect()
+		// is called multiple times within the same request lifecycle.
 		if( isset($GLOBALS["___mysqli_ston"]) && $GLOBALS["___mysqli_ston"] instanceof mysqli && @$GLOBALS["___mysqli_ston"]->ping() ) {
 			@((bool)mysqli_query($GLOBALS["___mysqli_ston"], "USE " . $_DVWA[ 'db_database' ]));
 		} else {
-			// Use persistent connections (p: prefix) to enable connection reuse
-			// across requests, preventing pool exhaustion under load
+			// Persistent connections in MySQLi are enabled by prefixing the
+			// hostname with 'p:'. When enabled, PHP will attempt to reuse an
+			// existing idle connection from a previous request instead of
+			// opening a new one. This is critical for high-concurrency
+			// scenarios where the database server's max_connections limit
+			// could be reached. Can be disabled via DB_PERSISTENT=false
+			// if persistent connections cause issues (e.g., stale session
+			// state, temporary tables leaking between requests).
 			$db_host = $db_persistent ? 'p:' . $_DVWA[ 'db_server' ] : $_DVWA[ 'db_server' ];
 
-			// Initialize MySQLi and set timeouts before connecting
+			// Initialize a MySQLi instance and configure timeout options
+			// before establishing the connection. This ensures that:
+			// - MYSQLI_OPT_CONNECT_TIMEOUT: The connection attempt will fail
+			//   after the specified seconds rather than hanging indefinitely
+			//   if the database server is unreachable.
+			// - MYSQLI_OPT_READ_TIMEOUT: Read operations will time out after
+			//   the specified seconds, preventing long-running queries from
+			//   holding connections open indefinitely.
 			$mysqli = mysqli_init();
 			if ($mysqli) {
 				$mysqli->options(MYSQLI_OPT_CONNECT_TIMEOUT, $db_connect_timeout);
@@ -596,10 +651,19 @@ function dvwaDatabaseConnect() {
 			}
 		}
 
-		// Reuse existing PDO connection if available
+		// Reuse existing PDO connection if one has already been established
+		// in this request. This avoids opening duplicate PDO connections.
 		if( !isset($db) || $db === null ) {
-			// MySQL PDO Prepared Statements (for impossible levels)
-			// Use persistent connections and set timeout attributes
+			// PDO connection used for prepared statements at the "impossible"
+			// security level. Configuration options:
+			// - ATTR_ERRMODE => ERRMODE_EXCEPTION: Throw exceptions on DB errors
+			//   for proper error handling rather than silent failures.
+			// - ATTR_EMULATE_PREPARES => false: Use real prepared statements
+			//   for security (prevents SQL injection at the driver level).
+			// - ATTR_PERSISTENT: Reuse connections across requests (same as
+			//   MySQLi p: prefix above) to reduce connection overhead.
+			// - ATTR_TIMEOUT: Connection timeout to avoid hanging on
+			//   unresponsive database servers.
 			$pdoOptions = array(
 				PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
 				PDO::ATTR_EMULATE_PREPARES => false,
@@ -627,24 +691,47 @@ function dvwaDatabaseConnect() {
 	}
 }
 
-// Register a shutdown function to clean up database connections
-// This ensures connections are properly released back to the pool
+/*
+ * dvwaDatabaseCleanup()
+ *
+ * Shutdown handler that ensures all database connections are properly closed
+ * and released at the end of each PHP request. This is registered via
+ * register_shutdown_function() and runs automatically when the script ends.
+ *
+ * Why this is important:
+ *   Without explicit cleanup, database connections may linger in a "sleeping"
+ *   state on the database server until they time out (default wait_timeout
+ *   is typically 28800 seconds / 8 hours in MySQL). Under high traffic, these
+ *   sleeping connections accumulate and exhaust the server's max_connections
+ *   limit, preventing new requests from acquiring a connection.
+ *
+ *   By explicitly closing connections at shutdown, we ensure they are returned
+ *   to the connection pool immediately, making them available for reuse by
+ *   subsequent requests.
+ *
+ * Note: This function is registered at include-time (when dvwaPage.inc.php is
+ * loaded), so it will run even if dvwaDatabaseConnect() was never called.
+ * All close operations are guarded with existence checks to handle this safely.
+ * The @ operator suppresses warnings from closing already-closed connections.
+ */
 function dvwaDatabaseCleanup() {
 	global $db;
 	global $sqlite_db_connection;
 
-	// Close MySQLi connection if it exists and is not persistent
+	// Close MySQLi connection. For persistent connections, close() resets the
+	// connection state and returns it to the pool rather than destroying it.
 	if( isset($GLOBALS["___mysqli_ston"]) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
 		@$GLOBALS["___mysqli_ston"]->close();
 		$GLOBALS["___mysqli_ston"] = null;
 	}
 
-	// Release PDO connection
+	// Release PDO connection by setting to null. For persistent connections,
+	// this returns the connection to PHP's internal connection pool.
 	if( isset($db) && $db !== null ) {
 		$db = null;
 	}
 
-	// Close SQLite connection if it exists
+	// Close SQLite connection if one was opened for the SQLi labs.
 	if( isset($sqlite_db_connection) && $sqlite_db_connection instanceof SQLite3 ) {
 		@$sqlite_db_connection->close();
 		$sqlite_db_connection = null;

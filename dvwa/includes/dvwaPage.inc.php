@@ -613,19 +613,35 @@ function dvwaDatabaseConnect() {
 			dvwaRedirect( DVWA_WEB_PAGE_TO_ROOT . 'setup.php' );
 		}
 
-		// MySQL PDO Prepared Statements (for impossible levels)
+		// MySQL PDO Prepared Statements (for impossible levels) with retry logic
 		$pdoOptions = array(
 			PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
 			PDO::ATTR_EMULATE_PREPARES   => false,
 			PDO::ATTR_TIMEOUT            => $connTimeout,
 			PDO::ATTR_PERSISTENT         => $usePersistent,
 		);
-		$db = new PDO(
-			'mysql:host=' . $_DVWA['db_server'] . ';dbname=' . $_DVWA['db_database'] . ';port=' . $_DVWA['db_port'] . ';charset=utf8',
-			$_DVWA['db_user'],
-			$_DVWA['db_password'],
-			$pdoOptions
-		);
+		$pdoConnected = false;
+		for ( $pdoAttempt = 1; $pdoAttempt <= $retryAttempts; $pdoAttempt++ ) {
+			try {
+				$db = new PDO(
+					'mysql:host=' . $_DVWA['db_server'] . ';dbname=' . $_DVWA['db_database'] . ';port=' . $_DVWA['db_port'] . ';charset=utf8',
+					$_DVWA['db_user'],
+					$_DVWA['db_password'],
+					$pdoOptions
+				);
+				$pdoConnected = true;
+				break;
+			} catch ( PDOException $e ) {
+				if ( $pdoAttempt < $retryAttempts ) {
+					sleep( $retryDelay );
+				}
+			}
+		}
+		if ( !$pdoConnected ) {
+			dvwaLogout();
+			dvwaMessagePush( 'Unable to create PDO database connection after ' . $retryAttempts . ' attempts.' );
+			dvwaRedirect( DVWA_WEB_PAGE_TO_ROOT . 'setup.php' );
+		}
 	}
 	elseif( $DBMS == 'PGSQL' ) {
 		//$dbconn = pg_connect("host={$_DVWA[ 'db_server' ]} dbname={$_DVWA[ 'db_database' ]} user={$_DVWA[ 'db_user' ]} password={$_DVWA[ 'db_password' ]}"
@@ -637,8 +653,11 @@ function dvwaDatabaseConnect() {
 		die ( "Unknown {$DBMS} selected." );
 	}
 
-	// Register a shutdown handler for proper connection cleanup
-	register_shutdown_function( 'dvwaDatabaseCleanup' );
+	// Register a shutdown handler for proper connection cleanup (only once)
+	if ( !defined( 'DVWA_SHUTDOWN_REGISTERED' ) ) {
+		register_shutdown_function( 'dvwaDatabaseCleanup' );
+		define( 'DVWA_SHUTDOWN_REGISTERED', true );
+	}
 
 	if ($_DVWA['SQLI_DB'] == SQLITE) {
 		$location = DVWA_WEB_PAGE_TO_ROOT . "database/" . $_DVWA['SQLITE_DB'];
@@ -657,10 +676,15 @@ function dvwaDatabaseCleanup() {
 	global $db;
 	global $sqlite_db_connection;
 
-	// Close MySQLi connection if it exists and is not persistent
-	// (persistent connections are managed by PHP's connection pool)
+	// Release MySQLi connection: only explicitly close non-persistent connections.
+	// Persistent connections (opened with 'p:' prefix) are managed by PHP's
+	// built-in connection pool and should not be closed manually.
 	if ( isset( $GLOBALS["___mysqli_ston"] ) && $GLOBALS["___mysqli_ston"] instanceof mysqli ) {
-		@$GLOBALS["___mysqli_ston"]->close();
+		global $_DVWA;
+		$isPersistent = isset( $_DVWA['db_enable_persistent'] ) ? (bool)$_DVWA['db_enable_persistent'] : true;
+		if ( !$isPersistent ) {
+			@$GLOBALS["___mysqli_ston"]->close();
+		}
 		$GLOBALS["___mysqli_ston"] = null;
 	}
 

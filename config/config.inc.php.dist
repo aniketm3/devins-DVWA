@@ -30,7 +30,7 @@ $_DVWA[ 'db_port']      = getenv('DB_PORT') ?: '3306';
 #   retry_delay: Delay in seconds between connection retry attempts
 $_DVWA[ 'db_max_connections' ]    = getenv('DB_MAX_CONNECTIONS') ?: 50;
 $_DVWA[ 'db_connection_timeout' ] = getenv('DB_CONNECTION_TIMEOUT') ?: 10;
-$_DVWA[ 'db_enable_persistent' ]  = getenv('DB_ENABLE_PERSISTENT') ?: true;
+$_DVWA[ 'db_enable_persistent' ]  = (getenv('DB_ENABLE_PERSISTENT') !== false) ? filter_var(getenv('DB_ENABLE_PERSISTENT'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true : true;
 $_DVWA[ 'db_retry_attempts' ]     = getenv('DB_RETRY_ATTEMPTS') ?: 3;
 $_DVWA[ 'db_retry_delay' ]        = getenv('DB_RETRY_DELAY') ?: 1;
 

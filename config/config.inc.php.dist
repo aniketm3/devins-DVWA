@@ -21,6 +21,17 @@ $_DVWA[ 'db_user' ]     = getenv('DB_USER') ?: 'dvwa';
 $_DVWA[ 'db_password' ] = getenv('DB_PASSWORD') ?: 'p@ssw0rd';
 $_DVWA[ 'db_port']      = getenv('DB_PORT') ?: '3306';
 
+# Database connection pool settings
+#   max_connections: Recommended MySQL server max_connections setting (default: 50)
+#     This value is not enforced by PHP; set it in your MySQL server config (my.cnf).
+#   connection_timeout: Seconds to wait when acquiring a connection (default: 10)
+#   idle_timeout: Seconds before an idle connection is closed (default: 300)
+#   persistent: Use persistent connections to reuse connections across requests (default: true)
+$_DVWA[ 'db_max_connections' ]   = getenv('DB_MAX_CONNECTIONS') ? (int)getenv('DB_MAX_CONNECTIONS') : 50;
+$_DVWA[ 'db_connection_timeout' ] = getenv('DB_CONNECTION_TIMEOUT') ? (int)getenv('DB_CONNECTION_TIMEOUT') : 10;
+$_DVWA[ 'db_idle_timeout' ]      = getenv('DB_IDLE_TIMEOUT') ? (int)getenv('DB_IDLE_TIMEOUT') : 300;
+$_DVWA[ 'db_persistent' ]        = getenv('DB_PERSISTENT') !== false ? filter_var(getenv('DB_PERSISTENT'), FILTER_VALIDATE_BOOLEAN) : true;
+
 # ReCAPTCHA settings
 #   Used for the 'Insecure CAPTCHA' module
 #   You'll need to generate your own keys at: https://www.google.com/recaptcha/admin
